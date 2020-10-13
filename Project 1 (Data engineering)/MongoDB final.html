@@ -1,0 +1,318 @@
+
+// Data manipulation
+
+// Data cleaning
+//Columns to remove:
+///1.possibly_sensitive 
+///2.quoted_status_permalink
+///3.in_reply_to_status_id
+///4.in_reply_to_user_id
+///5.quoted_status_id
+///6.display_text_range
+///7.geo
+///8.coordinates
+///9.place
+///10.contributors
+///11.id
+
+db.fcp.updateMany(
+	{}, 
+	{
+		$unset:{"geo":1, 
+		"possibly_sensitive":1, 
+		"quoted_status_permalink":1, 
+		"quoted_status_id":1, 
+		"display_text_range": 1, 
+		"place":1, 
+		"coordinates":1, 
+		"contributors":1, 
+		"quote_count":1,
+		"reply_count":1,
+		"favorite_count":1,
+		"retweet_count":1
+		"id":1, 
+		"in_reply_to_status_id":1, 
+		"in_reply_to_user_id":1 }}
+)
+
+// Adds popularity attribute of the tweet (all actions carry equal weight)
+db.fcp.updateMany(
+    {},
+    [
+    {
+        "$set": {
+            "popularity_sum": {
+                "$add": [
+                	"$retweeted_status.quote_count", 
+                	"$retweeted_status.reply_count",
+                	"$retweeted_status.favorite_count",
+                	"$retweeted_status.retweet_count"
+                ]
+            }
+        }
+    }
+    ]
+)
+
+// QUERIES
+// 1. TOP 10 Trending hashtags
+db.fcp.aggregate([{
+	"$unwind":"$entities.hashtags"
+	},
+	{
+	"$sortByCount":"$entities.hashtags.text"
+	},
+	{
+	"$limit": 10
+}])
+
+/// Result
+//{ "_id" : "NBAFinals", "count" : 40120 }
+//{ "_id" : "WhateverItTakes", "count" : 13687 }
+//{ "_id" : "DubNation", "count" : 1909 }
+//{ "_id" : "NBAonABC", "count" : 1350 }
+//{ "_id" : "nbafinals", "count" : 906 }
+//{ "_id" : "Cavs", "count" : 808 }
+//{ "_id" : "NBA", "count" : 729 }
+//{ "_id" : "ThisIsWhyWePlay", "count" : 698 }
+//{ "_id" : "NBAnaESPN", "count" : 619 }
+//{ "_id" : "NBAsaABSCBN", "count" : 484 }
+
+// 2. Most popular place from where tweet was placed/ which and how many places 
+db.fcp.aggregate([{
+	"$sortByCount":"$user.location"
+	},
+	{
+	"$limit": 10
+}
+])
+
+//// Result
+//{ "_id" : null, "count" : 14484 } // Probably location services disabled
+//{ "_id" : "United States", "count" : 461 }
+//{ "_id" : "Cleveland, OH", "count" : 254 }
+//{ "_id" : "Los Angeles, CA", "count" : 250 }
+//{ "_id" : "Rio de Janeiro, Brasil", "count" : 202 }
+//{ "_id" : "New York, NY", "count" : 182 }
+//{ "_id" : "Atlanta, GA", "count" : 174 }
+//{ "_id" : "Chicago, IL", "count" : 170 }
+//{ "_id" : "Philippines", "count" : 169 }
+//{ "_id" : "Houston, TX", "count" : 160 }
+
+// 3. Which languages are used for the tweets 
+db.fcp.aggregate([{
+	"$sortByCount":"$lang"
+	},
+	{
+	"$limit": 10
+}
+])
+
+//// Result
+//{ "_id" : "en", "count" : 37756 }
+//{ "_id" : "und", "count" : 3237 }
+//{ "_id" : "es", "count" : 3164 }
+//{ "_id" : "ar", "count" : 2129 }
+//{ "_id" : "pt", "count" : 1901 }
+//{ "_id" : "tr", "count" : 1205 }
+//{ "_id" : "tl", "count" : 627 }
+//{ "_id" : "fr", "count" : 409 }
+//{ "_id" : "in", "count" : 276 }
+//{ "_id" : "ja", "count" : 194 }
+// 4. Which source is the most usable
+db.fcp.aggregate([{
+	"$sortByCount":"$source"
+	},
+	{
+	"$limit": 5
+}
+])
+
+//// Result
+//{ "_id" : "<a href=\"http://twitter.com/download/iphone\" rel=\"nofollow\">Twitter for iPhone</a>", "count" : 27397 }
+//{ "_id" : "<a href=\"http://twitter.com/download/android\" rel=\"nofollow\">Twitter for Android</a>", "count" : 16586 }
+//{ "_id" : "<a href=\"http://twitter.com\" rel=\"nofollow\">Twitter Web Client</a>", "count" : 3828 }
+//{ "_id" : "<a href=\"https://mobile.twitter.com\" rel=\"nofollow\">Twitter Lite</a>", "count" : 1173 }
+//{ "_id" : "<a href=\"https://about.twitter.com/products/tweetdeck\" rel=\"nofollow\">TweetDeck</a>", "count" : 706 }
+
+// 5. Whether the posts with media receive more likes/retweets/replies rather than posts without media ? (On average)
+db.fcp.aggregate([{
+	"$sortByCount":"$extended_entities.media.type"
+	},
+	{
+	"$limit": 10
+}
+])
+
+db.fcp.aggregate(
+   [
+     {
+       $group:
+         {
+           _id: "$extended_entities.media.type",
+           avgQuantity: { $avg: "$favorite_count" }
+         }
+     }
+   ]
+)
+// 6. friends_count / followers_count (Most popular user)
+/// Unverified users
+db.fcp.aggregate([
+	{"$match":{
+		"user.verified":false
+		}
+	},
+	{
+	"$group": {
+		"_id":"$user.name",
+		"user_followers_count": {"$max":"$user.followers_count"}
+		}
+	},
+	{
+	"$sort":{"user_followers_count":-1},
+	},
+	{
+	"$limit":10
+	}
+])
+
+//// Results
+//{ "_id" : "SuperElmo", "user_followers_count" : 1279999 }
+//{ "_id" : "DZMMTeleRadyo", "user_followers_count" : 1279317 }
+//{ "_id" : "Javisness", "user_followers_count" : 1066235 }
+//{ "_id" : "demarkesports", "user_followers_count" : 853044 }
+//{ "_id" : "An_141a", "user_followers_count" : 669979 }
+//{ "_id" : "apaci__ronaldo", "user_followers_count" : 602586 }
+//{ "_id" : "LALATE", "user_followers_count" : 500406 }
+//{ "_id" : "ObiWanKevobi", "user_followers_count" : 338063 }
+//{ "_id" : "FueledbyCulture", "user_followers_count" : 263584 }
+//{ "_id" : "rahatsizabi", "user_followers_count" : 258681 }
+
+/// Verified users
+db.fcp.aggregate([
+	{"$match":{
+		"user.verified":true
+		}
+	},
+	{
+		"$group": {
+			"_id":{
+				"username":"$user.name",
+				"user_screen_name":"$user.screen_name"
+			},
+			"user_followers_count": {"$max":"$user.followers_count"}
+		}
+	},
+	{
+	"$sort":{"user_followers_count":-1},
+	},
+	{
+	"$limit":10
+	}
+])
+
+//// Results
+//{ "_id" : { "username" : "NBA", "user_screen_name" : "NBA" }, "user_followers_count" : 27814570 }
+//{ "_id" : { "username" : "Marcos Mion", "user_screen_name" : "marcosmion" }, "user_followers_count" : 13498273 }
+//{ "_id" : { "username" : "Bleacher Report", "user_screen_name" : "BleacherReport" }, "user_followers_count" : 6660591 }
+//{ "_id" : { "username" : "ABS-CBN News", "user_screen_name" : "ABSCBNNews" }, "user_followers_count" : 5844884 }
+//{ "_id" : { "username" : "Golden State Warriors", "user_screen_name" : "warriors" }, "user_followers_count" : 5833288 }
+//{ "_id" : { "username" : "GMA News", "user_screen_name" : "gmanews" }, "user_followers_count" : 5458096 }
+//{ "_id" : { "username" : "ABS-CBN News Channel", "user_screen_name" : "ANCALERTS" }, "user_followers_count" : 4689560 }
+//{ "_id" : { "username" : "NBA TV", "user_screen_name" : "NBATV" }, "user_followers_count" : 4012730 }
+//{ "_id" : { "username" : "USA TODAY", "user_screen_name" : "USATODAY" }, "user_followers_count" : 3643916 }
+//{ "_id" : { "username" : "Pittsburgh Steelers", "user_screen_name" : "steelers" }, "user_followers_count" : 3404226 }
+
+// 7. Top tweet (Might manipulate to add popularity feature which is the sum of all these counts)
+db.fcp.aggregate([
+	{
+		"$group": {
+			"_id":{
+				"text":"$retweeted_status.text",
+				"user":"$retweeted_status.user.name"
+			},
+			"popularity": {"$max":"$popularity_sum"}
+		}
+	},
+	{
+	"$sort":{"popularity":-1},
+	},
+	{
+	"$limit":5
+	}
+])
+
+//
+//{ "_id" : { "text" : "Stop being scary bro she right there go talk to her 😂 https://t.co/JDurREDxrj", "user" : "Rico" }, "popularity" : 131616 }
+//{ "_id" : { "text" : "Snakes on a Plane (2006) https://t.co/1lhHbMjU3o", "user" : "Up The Thunder" }, "popularity" : 32811 }
+//{ "_id" : { "text" : "👑😱 OH YES HE DID! 😱👑\n\n#WhateverItTakes #NBAFinals https://t.co/Axun0gOmok", "user" : "NBA" }, "popularity" : 28548 }
+//{ "_id" : { "text" : "The BEST of Steph Curry (31 ppg, 6.5 rpg, 8.5 apg) from the @warriors W's in Games 1 &amp; 2 of the #NBAFinals!… https://t.co/sZdSfRL4qq", "user" : "NBA" }, "popularity" : 19301 }
+//{ "_id" : { "text" : "Stephen Curry (33 PTS, 8 AST, 7 REB) knocked down an #NBAFinals record 9 3-pointers to fuel the @warriors Game 2 wi… https://t.co/EdxG5IG9ms", "user" : "NBA" }, "popularity" : 18385 }
+// 9. Most retweeted tweet
+db.fcp.aggregate([
+	{"$match":{
+		"user.verified":true
+		}
+	},
+	{
+		"$group": {
+			"_id":{
+				"retweeted_text":"$retweeted_status.text",
+				"user":"$retweeted_status.user.name"
+			},
+			"retweet_count": {"$max":"$retweeted_status.retweet_count"}
+		}
+	},
+	{
+	"$sort":{"retweet_count":-1},
+	},
+	{
+	"$limit":5
+	}
+])
+
+/// Result
+//{ "_id" : { "retweeted_text" : "👑😱 OH YES HE DID! 😱👑\n\n#WhateverItTakes #NBAFinals https://t.co/Axun0gOmok", "user" : "NBA" }, "retweet_count" : 10016 }
+//{ "_id" : { "retweeted_text" : "Shook.\n\n#NBAFinals https://t.co/9JVTJcPEl0", "user" : "Bleacher Report" }, "retweet_count" : 4076 }
+//{ "_id" : { "retweeted_text" : "I’m 1000% sure that Lebron can’t win this series!  Soooo, if the #Cavs beat the #Warriors in the NBA Finals, I’ll g… https://t.co/h5zIgazRab", "user" : "Marcellus Wiley" }, "retweet_count" : 3608 }
+//{ "_id" : { "retweeted_text" : "JEU CONCOURS #NBAFinals \nGAGNES LES SHOES DE TON JOUEURS PRÉFÉRÉ\n\nFollow @FirstTeam101 &amp; @parisbasketball \n+ RT ce… https://t.co/wUDZh3ZR3N", "user" : "First Team" }, "retweet_count" : 774 }
+//{ "_id" : { "retweeted_text" : "OH MY, LEBRON JAMES! 😳\n\n#NBAFinals \n\nhttps://t.co/ZoeHxiMFee", "user" : "NBA on TNT" }, "retweet_count" : 749 }
+// 10. Count team supporters (Which team has more twitter users fans) - Dylan (based on hashtags not twitter text)
+/// finding cav-mentioned tweet ## 1571
+db.fcp.find(
+    {
+        "entities.hashtags.text": {
+            $in: [/^Cavs$/i, /^CavsNation$/i,/^gocavs$/i,/^cavaliers$/i,/^Cleveland$/i,/^lebron$/i,/^lebronjames$/i,/^JRSmith$/i]
+        }
+    }, 
+    {
+        _id:0, 
+        "text":1
+    }
+).count()
+
+/// counting number of Warriors tweets ## 2528
+db.fcp.find(
+    {
+        "entities.hashtags.text": {
+            $in: [/^DubNation$/i,/^Warriors$/i,/^GSW$/i,/^gowarriors$/i,/^stephcurry$/i,/^curry$/i]
+        }
+    }, 
+    {
+        _id:0, 
+        "text":1
+    }
+).count()
+
+/// counting number of other tweets ## 47720
+db.fcp.find(
+    {
+        "entities.hashtags.text": {
+            $nin: [/^DubNation$/i,/^Warriors$/i,/^GSW$/i,/^gowarriors$/i,/^stephcurry$/i,/^curry$/i,/^Cavs$/i, /^CavsNation$/i,/^gocavs$/i,/^cavaliers$/i,/^Cleveland$/i,/^lebron$/i,/^lebronjames$/i,/^JRSmith$/i]
+        }
+    }, 
+    {
+        _id:0, 
+        "text":1
+    }
+).count();
